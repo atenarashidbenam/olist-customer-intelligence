@@ -178,4 +178,24 @@ cython_debug/
 #  exclude from AI features like autocomplete and code analysis. Recommended for sensitive data
 #  refer to https://docs.cursor.com/context/ignore-files
 .cursorignore
-.cursorindexingignore
+.cursorindexingignore 
+# Virtual Environment
+.venv/
+
+# Environment Variables
+.env
+
+# Raw data
+data/raw/*
+!data/raw/.gitkeep
+
+# Python Cache
+__pycache__/
+*.pyc
+
+# Jupyter
+.ipynb_checkpoints/
+
+# OS Files
+.DS_Store
+Thumbs.db
