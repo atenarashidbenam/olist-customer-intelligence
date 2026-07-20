@@ -1,15 +1,3 @@
-/*
-=========================================================
-Script Name :
-11_validate_analytics_layer.sql
-
-Purpose :
-Validate analytics views, row counts, percentages,
-null values, and business-rule consistency.
-
-=========================================================
-*/
-
 USE OlistCustomerIntelligence;
 GO
 
@@ -51,7 +39,35 @@ GO
 
 
 /*=======================================================
-3. Validate Order Status Percentages
+3. Revenue Reconciliation
+Expected difference: 0
+=======================================================*/
+
+SELECT
+
+    ed.gross_revenue AS executive_dashboard_revenue,
+
+    ms.total_monthly_revenue,
+
+    CAST
+    (
+        ed.gross_revenue - ms.total_monthly_revenue
+        AS DECIMAL(18,2)
+    ) AS revenue_difference
+
+FROM analytics.v_executive_dashboard AS ed
+
+CROSS JOIN
+(
+    SELECT
+        SUM(gross_revenue) AS total_monthly_revenue
+    FROM analytics.v_monthly_sales
+) AS ms;
+GO
+
+
+/*=======================================================
+4. Validate Order Status Percentages
 Expected result: approximately 100%
 =======================================================*/
 
@@ -68,7 +84,7 @@ GO
 
 
 /*=======================================================
-4. Validate Review Score Distribution
+5. Validate Review Score Distribution
 Expected review scores: 1 to 5
 Expected total percentage: approximately 100%
 =======================================================*/
@@ -89,7 +105,7 @@ GO
 
 
 /*=======================================================
-5. Validate Delivery Performance
+6. Validate Delivery Performance
 =======================================================*/
 
 SELECT
@@ -113,7 +129,7 @@ GO
 
 
 /*=======================================================
-6. Validate Customer RFM Scores
+7. Validate Customer RFM Scores
 Expected score range: 1 to 5
 =======================================================*/
 
@@ -132,7 +148,7 @@ GO
 
 
 /*=======================================================
-7. Validate Customer Segments
+8. Validate Customer Segments
 =======================================================*/
 
 SELECT
@@ -156,12 +172,12 @@ GO
 
 
 /*=======================================================
-8. Validate Monthly Sales
+9. Validate Monthly Sales
 =======================================================*/
 
 SELECT
-    MIN(order_month) AS first_sales_month,
-    MAX(order_month) AS last_sales_month,
+    MIN(sales_month) AS first_sales_month,
+    MAX(sales_month) AS last_sales_month,
     SUM(total_orders) AS total_orders,
     SUM(total_customers) AS total_customer_records,
     SUM(product_revenue) AS total_product_revenue,
@@ -173,7 +189,7 @@ GO
 
 
 /*=======================================================
-9. Validate Product Performance
+10. Validate Product Performance
 =======================================================*/
 
 SELECT
@@ -187,7 +203,7 @@ GO
 
 
 /*=======================================================
-10. Validate Seller Performance
+11. Validate Seller Performance
 =======================================================*/
 
 SELECT

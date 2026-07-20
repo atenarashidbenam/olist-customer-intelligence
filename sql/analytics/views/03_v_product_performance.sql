@@ -7,20 +7,38 @@ AS
 SELECT
     p.product_id,
 
-    pct.product_category_name_english AS product_category,
+    ISNULL
+    (
+        pct.product_category_name_english,
+        p.product_category_name
+    ) AS product_category,
 
     COUNT(DISTINCT oi.order_id) AS total_orders,
 
-    SUM(oi.price) AS product_revenue,
+    COUNT(*) AS total_items_sold,
 
-    SUM(oi.freight_value) AS freight_revenue,
+    CAST
+    (
+        SUM(oi.price)
+        AS DECIMAL(18,2)
+    ) AS product_revenue,
 
-    SUM(oi.price + oi.freight_value) AS gross_revenue,
+    CAST
+    (
+        SUM(oi.freight_value)
+        AS DECIMAL(18,2)
+    ) AS freight_revenue,
 
-    SUM(oi.order_item_id) AS total_items_sold,
+    CAST
+    (
+        SUM(oi.price + oi.freight_value)
+        AS DECIMAL(18,2)
+    ) AS gross_revenue,
 
-    CAST(
-        AVG(oi.price) AS DECIMAL(18,2)
+    CAST
+    (
+        AVG(oi.price)
+        AS DECIMAL(18,2)
     ) AS average_price
 
 FROM core.products AS p
@@ -38,5 +56,10 @@ WHERE o.order_status = 'delivered'
 
 GROUP BY
     p.product_id,
-    pct.product_category_name_english;
+
+    ISNULL
+    (
+        pct.product_category_name_english,
+        p.product_category_name
+    );
 GO

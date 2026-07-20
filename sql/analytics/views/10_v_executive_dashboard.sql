@@ -1,141 +1,296 @@
+/*
+=========================================================
+View Name :
+analytics.v_executive_dashboard
+
+Purpose :
+Provide a single-row summary of the main business KPIs
+for executive reporting and Power BI KPI cards.
+
+Business Scope :
+Only delivered orders are included in sales, customer,
+review, delivery, and repeat-purchase KPIs.
+
+Author :
+Atena Rashidbenam
+
+Project :
+Olist Customer Intelligence Platform
+=========================================================
+*/
+
 USE OlistCustomerIntelligence;
 GO
+
 
 CREATE OR ALTER VIEW analytics.v_executive_dashboard
 AS
 
-WITH sales AS
+WITH delivered_orders AS
 (
     SELECT
+        o.order_id,
+        o.customer_id,
+        o.order_purchase_timestamp,
+        o.order_delivered_customer_date,
+        o.order_estimated_delivery_date
+    FROM core.orders AS o
+    WHERE o.order_status = 'delivered'
+),
 
-        COUNT(DISTINCT o.order_id) AS total_orders,
+
+/*-------------------------------------------------------
+Calculate the financial value of each delivered order.
+
+One row is created for each order to ensure that
+Average Order Value is calculated correctly.
+-------------------------------------------------------*/
+
+order_totals AS
+(
+    SELECT
+        do.order_id,
+        do.customer_id,
 
         SUM(oi.price) AS product_revenue,
 
         SUM(oi.freight_value) AS freight_revenue,
 
-        SUM(oi.price + oi.freight_value) AS gross_revenue,
+        SUM(oi.price + oi.freight_value) AS gross_order_value,
 
-        AVG(oi.price + oi.freight_value) AS average_item_value
+        COUNT(*) AS total_items
 
-    FROM core.orders o
+    FROM delivered_orders AS do
 
-    INNER JOIN core.order_items oi
-        ON o.order_id = oi.order_id
+    INNER JOIN core.order_items AS oi
+        ON do.order_id = oi.order_id
 
-    WHERE o.order_status='delivered'
+    GROUP BY
+        do.order_id,
+        do.customer_id
 ),
 
-customers AS
+
+/*-------------------------------------------------------
+Sales and order KPIs
+-------------------------------------------------------*/
+
+sales_kpis AS
 (
     SELECT
+        COUNT(*) AS total_delivered_orders,
 
-        COUNT(DISTINCT customer_unique_id) AS total_customers
+        SUM(total_items) AS total_items_sold,
 
-    FROM core.customers
-),
-
-reviews AS
-(
-    SELECT
-
-        AVG(CAST(review_score AS DECIMAL(10,2)))
-            AS average_review_score
-
-    FROM core.order_reviews
-),
-
-delivery AS
-(
-    SELECT
-
-        AVG
+        CAST
         (
-            CAST
-            (
-                DATEDIFF
-                (
-                    DAY,
-                    order_purchase_timestamp,
-                    order_delivered_customer_date
-                )
-                AS DECIMAL(10,2)
-            )
-        ) AS average_delivery_days
+            SUM(product_revenue)
+            AS DECIMAL(18,2)
+        ) AS total_product_revenue,
 
-    FROM core.orders
+        CAST
+        (
+            SUM(freight_revenue)
+            AS DECIMAL(18,2)
+        ) AS total_freight_revenue,
 
-    WHERE order_status='delivered'
+        CAST
+        (
+            SUM(gross_order_value)
+            AS DECIMAL(18,2)
+        ) AS total_gross_revenue,
+
+        CAST
+        (
+            AVG(gross_order_value)
+            AS DECIMAL(18,2)
+        ) AS average_order_value
+
+    FROM order_totals
 ),
 
-repeat_rate AS
+
+/*-------------------------------------------------------
+Customer KPIs
+
+Only customers with at least one delivered order
+are included.
+-------------------------------------------------------*/
+
+customer_order_counts AS
 (
     SELECT
+        c.customer_unique_id,
+
+        COUNT(DISTINCT do.order_id) AS delivered_order_count
+
+    FROM delivered_orders AS do
+
+    INNER JOIN core.customers AS c
+        ON do.customer_id = c.customer_id
+
+    GROUP BY
+        c.customer_unique_id
+),
+
+
+customer_kpis AS
+(
+    SELECT
+        COUNT(*) AS total_customers,
+
+        SUM
+        (
+            CASE
+                WHEN delivered_order_count > 1
+                THEN 1
+                ELSE 0
+            END
+        ) AS repeat_customers,
 
         CAST
         (
             SUM
             (
                 CASE
-                    WHEN total_orders>1 THEN 1.0
-                    ELSE 0
+                    WHEN delivered_order_count > 1
+                    THEN 1.0
+                    ELSE 0.0
                 END
             )
-            /
-            COUNT(*)
-            *100
-            AS DECIMAL(10,2)
+            * 100.0
+            / NULLIF(COUNT(*), 0)
+
+            AS DECIMAL(6,2)
         ) AS repeat_customer_rate
 
-    FROM
-    (
+    FROM customer_order_counts
+),
 
-        SELECT
 
-            c.customer_unique_id,
+/*-------------------------------------------------------
+Review KPIs
 
-            COUNT(DISTINCT o.order_id) AS total_orders
+Only reviews belonging to delivered orders
+are included.
+-------------------------------------------------------*/
 
-        FROM core.customers c
+review_kpis AS
+(
+    SELECT
+        CAST
+        (
+            AVG(CAST(r.review_score AS DECIMAL(10,2)))
+            AS DECIMAL(4,2)
+        ) AS average_review_score,
 
-        INNER JOIN core.orders o
+        CAST
+        (
+            SUM
+            (
+                CASE
+                    WHEN r.review_score >= 4
+                    THEN 1.0
+                    ELSE 0.0
+                END
+            )
+            * 100.0
+            / NULLIF(COUNT(*), 0)
 
-            ON c.customer_id=o.customer_id
+            AS DECIMAL(6,2)
+        ) AS positive_review_rate
 
-        WHERE o.order_status='delivered'
+    FROM delivered_orders AS do
 
-        GROUP BY c.customer_unique_id
+    INNER JOIN core.order_reviews AS r
+        ON do.order_id = r.order_id
+),
 
-    ) t
+
+/*-------------------------------------------------------
+Delivery KPIs
+
+Orders without a valid delivery date are excluded
+from time-based delivery calculations.
+-------------------------------------------------------*/
+
+delivery_kpis AS
+(
+    SELECT
+        CAST
+        (
+            AVG
+            (
+                CAST
+                (
+                    DATEDIFF
+                    (
+                        DAY,
+                        do.order_purchase_timestamp,
+                        do.order_delivered_customer_date
+                    )
+                    AS DECIMAL(10,2)
+                )
+            )
+            AS DECIMAL(10,2)
+        ) AS average_delivery_days,
+
+        CAST
+        (
+            SUM
+            (
+                CASE
+                    WHEN do.order_delivered_customer_date
+                         <= do.order_estimated_delivery_date
+                    THEN 1.0
+                    ELSE 0.0
+                END
+            )
+            * 100.0
+            / NULLIF(COUNT(*), 0)
+
+            AS DECIMAL(6,2)
+        ) AS on_time_delivery_rate
+
+    FROM delivered_orders AS do
+
+    WHERE do.order_delivered_customer_date IS NOT NULL
+      AND do.order_estimated_delivery_date IS NOT NULL
 )
 
-SELECT
 
-    s.total_orders,
+SELECT
+    s.total_delivered_orders,
 
     c.total_customers,
 
-    s.product_revenue,
+    c.repeat_customers,
 
-    s.freight_revenue,
+    s.total_items_sold,
 
-    s.gross_revenue,
+    s.total_product_revenue,
 
-    s.average_item_value,
+    s.total_freight_revenue,
+
+    s.total_gross_revenue,
+
+    s.average_order_value,
 
     r.average_review_score,
 
+    r.positive_review_rate,
+
     d.average_delivery_days,
 
-    rr.repeat_customer_rate
+    d.on_time_delivery_rate,
 
-FROM sales s
+    c.repeat_customer_rate
 
-CROSS JOIN customers c
+FROM sales_kpis AS s
 
-CROSS JOIN reviews r
+CROSS JOIN customer_kpis AS c
 
-CROSS JOIN delivery d
+CROSS JOIN review_kpis AS r
 
-CROSS JOIN repeat_rate rr;
+CROSS JOIN delivery_kpis AS d;
 GO
